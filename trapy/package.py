@@ -19,7 +19,7 @@ class Packet:
         tcp_headers: bytes = struct.pack('!2h2i2hi', self.sourcePort, self.destinationPort,
                                          self.seqNumber, self.ack, self.flags, self.winSize, self.check_sum())
 
-        ip_header = b'\x00\x0f\x00\x0f'                             #token
+        ip_header = b'\x00\x0f\x00\x0f'                       #token
         ip_header += socket.inet_aton(self.sourceAddress)
         ip_header += socket.inet_aton(self.destinationAddress)
         

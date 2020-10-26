@@ -1,10 +1,15 @@
-class Conn:
-    pass
+from .utils import parse_address
+from .package  import *
 
+class Conn:
+    def __init__(self, address: str):
+        self.host, self.port = parse_address(address)
+        
 
 class ConnException(Exception):
     pass
 
+connection_list: Conn = []
 
 def listen(address: str) -> Conn:
     pass
