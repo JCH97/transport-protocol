@@ -1,6 +1,8 @@
 import struct
 import socket
+import logging
 from typing import Tuple, Any
+
 
 class Packet:
     def __init__(self, sourceAddress: str, destinationAddress: str, sourcePort: int, destinationPort: int, seqNumber: int, ack: int, flags: int, winSize: int, data=b''):
@@ -19,28 +21,40 @@ class Packet:
         tcp_headers: bytes = struct.pack('!2h2i2hi', self.sourcePort, self.destinationPort,
                                          self.seqNumber, self.ack, self.flags, self.winSize, self.check_sum())
 
-        ip_header = b'\x00\x0f\x00\x0f'                       #token
+        ip_header = b'\x00\x0f\x00\x0f'  # token
         ip_header += socket.inet_aton(self.sourceAddress)
         ip_header += socket.inet_aton(self.destinationAddress)
-        
+
         return ip_header + tcp_headers + self.data
 
     def check_sum(self) -> int:
-        return abs(~(self.sourcePort + self.destinationPort >> 1) + len(self.data))
+        # print(self.data)
+        # print(f'Build checkSum: {self.sourcePort}, {self.destinationPort >> 1}, {self.flags}, {len(self.data)}')
+        return abs(~(self.sourcePort + self.destinationPort >> 1 + self.flags) + len(self.data))
 
     @staticmethod
-    def unpack(packet: bytes) -> Tuple[Any]:
+    def unpack(packet: bytes) -> list:
 
         try:
-            return packet[0:4], packet[4:8], packet[8:12], struct.unpack('!2h2i2hi', packet[12:32]), packet[32:]
-        except:
-            pass
+            tcp_headers = struct.unpack('!2h2i2hi', packet[12:32])
+            pack = [
+                packet[0:4],
+                socket.inet_ntoa(packet[4:8]),
+                socket.inet_ntoa(packet[8:12]),
+            ] + list(tcp_headers)
+            pack.append(packet[32:])
+
+            return pack
+
+        except Exception as err:
+            logging.error(err)
 
         return None
 
 
 if __name__ == "__main__":
-    p = Packet('127.0.0.1', '127.0.0.1', 80, 3000, 45221, 5421, 0, 512, b'Jose Carlos')
+    p = Packet('127.0.0.1', '127.0.0.1', 80, 3000,
+               45221, 5421, 0, 512, b'Jose Carlos')
 
     pack = p.build()
     unpack = Packet.unpack(pack)

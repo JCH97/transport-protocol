@@ -18,9 +18,9 @@ s = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_TCP)
 
 # packet = ip_header + tcp_header + b'Jose Carlos Hernandez'
 
-p = Packet('127.0.0.1', '127.0.0.1', 80, 3000, 45221, 5421, 0, 512, b'Jose Carlos Hernandez Pinnera, Ciencia de la Computacion')
+p = Packet('127.0.0.1', '192.168.43.105', 80, 3000, 45221, 5421, 0, 512, b'Jose Carlos Hernandez Pinnera, Ciencia de la Computacion')
 
-a =  s.sendto(p.build(), ('127.0.0.1', 0))
+a =  s.sendto(p.build(), ('192.168.43.105', 0))
 print(a);
 # h = struct.pack('!i', 121);
 # y = struct.unpack('!i', h)
