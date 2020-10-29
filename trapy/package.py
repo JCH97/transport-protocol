@@ -34,7 +34,6 @@ class Packet:
 
     @staticmethod
     def unpack(packet: bytes) -> list:
-
         try:
             tcp_headers = struct.unpack('!2h2i2hi', packet[12:32])
             pack = [
