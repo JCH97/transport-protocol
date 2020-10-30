@@ -20,7 +20,6 @@ class Packet:
     def build(self) -> bytes:
         tcp_headers: bytes = struct.pack('!2h2i2hi', self.sourcePort, self.destinationPort,
                                          self.seqNumber, self.ack, self.flags, self.winSize, self.check_sum())
-
         ip_header = b'\x00\x0f\x00\x0f'  # token
         ip_header += socket.inet_aton(self.sourceAddress)
         ip_header += socket.inet_aton(self.destinationAddress)
@@ -52,8 +51,7 @@ class Packet:
 
 
 if __name__ == "__main__":
-    p = Packet('127.0.0.1', '127.0.0.1', 80, 3000,
-               45221, 5421, 0, 512, b'Jose Carlos')
+    p = Packet('127.0.0.1', '127.0.0.1', 80, 3000, 45221, 5421, 0, 512, b'Jose Carlos Hdez')
 
     pack = p.build()
     unpack = Packet.unpack(pack)
