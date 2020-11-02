@@ -8,14 +8,14 @@ from mininet.link import TCLink
 from mininet.log import setLogLevel
 from mininet.net import Mininet
 
-from tests import config
-from tests.topos.single_switch import SingleSwitchTopo
-from tests.utils import file_hashes, is_port_open, wait_for
+from config import *
+from topos.single_switch import SingleSwitchTopo
+from utils import file_hashes, is_port_open, wait_for
 
 
 class TestServeFile(unittest.TestCase):
     def setUp(self):
-        os.makedirs('tests/data/tmp-data')
+        # os.makedirs('tests/data/tmp-data')
 
         setLogLevel(config.MININET_LOG_LEVEL)
         self.topo = SingleSwitchTopo(n=2)
@@ -23,8 +23,8 @@ class TestServeFile(unittest.TestCase):
         self.net.start()
 
     def test_download_small(self):
-        server_file = 'tests/data/small.txt'
-        client_file = 'tests/tmp-data/small.txt'
+        server_file = 'tests/data/data.txt'
+        client_file = 'tests/data/out.txt'
 
         h1, h2 = self.net.get('h1', 'h2')
 
@@ -34,7 +34,7 @@ class TestServeFile(unittest.TestCase):
             '{} -mserve_file --accept {} --file {} &'
             .format(config.PYTHON, address, server_file)
         )
-        wait_for(partial(is_port_open, address, h1))
+        # wait_for(partial(is_port_open, address, h1))
         h2.cmdPrint(
             '{} -mserve_file --dial {} --file {}'
             .format(config.PYTHON, address, client_file)

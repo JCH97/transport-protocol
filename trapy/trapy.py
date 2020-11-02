@@ -11,16 +11,12 @@ import time
 import sys
 
 #Data
-
 PACKET_SIZE = 512
-SLEEP_INTERVAL = 0.05
-TIMEOUT_INTERVAL = 0.5
+SLEEP_INTERVAL = 0.0005
+TIMEOUT_INTERVAL = 0.005
 WINDOW_SIZE = 5
-# base = 0
-# send_timer = Timer(TIMEOUT_INTERVAL)
-# mutex = threading.Lock()
-# expected_num = 0
-errors = ["Server isn't running", "First call accept with server connection"]
+
+errors = ["Server isn't running", "First call accept with server connection", "Coonection in use; wait for it to finish sending"]
 logsServer = False
 logsClient = False
 
@@ -39,6 +35,7 @@ class Conn:
         self.sendTimer = Timer(TIMEOUT_INTERVAL)
         self.mutex = threading.Lock()
         self.expectedNum = 0
+        self.totalPackets = 0        
 
 
 class ConnException(Exception):
@@ -57,7 +54,7 @@ def listen(address: str, logs = False) -> Conn:
     
     conn: Conn = Conn(source = address)
     conn.socket.bind(parse_address(address))
-
+    
     if logsServer: print(f'bind: {parse_address(address)}')
 
     connection_servers[address] = conn
@@ -67,7 +64,7 @@ def listen(address: str, logs = False) -> Conn:
 
 def accept(conn: Conn) -> Conn:
     if conn.destination is not None:
-        raise ConnException(0)
+        raise ConnException(2)
 
 
 def dial(address: str, logs = False) -> Conn:
@@ -91,9 +88,6 @@ def dial(address: str, logs = False) -> Conn:
     return clientConnection
 
 def send(conn: Conn, data: bytes, splitData = True) -> int:
-    # global mutex
-    # global base
-    # global send_timer
     global logsServer
     global logsClient
     amountSend = 0   
@@ -109,33 +103,29 @@ def send(conn: Conn, data: bytes, splitData = True) -> int:
     destHost, destPort = parse_address(conn.destination)
 
     while indx <= len(data):
-        # print(indx)
-        # print(PACKET_SIZE - 32)
         d = data[indx:indx + PACKET_SIZE - 32]
-        # print(d)
-        # print(len(d))
-        # print(len(data))
-        # print('\n')   
         pck: Packet = Packet(sourceHost, destHost, sourcePort, destPort, 0, seq_num, 0, WINDOW_SIZE, d)
         packets.append(pck.build())
         seq_num += 1
         indx += (PACKET_SIZE - 32)
 
     numPackets = len(packets)
-    window_size = set_window_size(conn, numPackets)
+    conn.totalPackets = numPackets
+    
     next_to_send = 0
-    base = 0
+    conn.base = 0
+    window_size = set_window_size(conn, numPackets)
+
+    send(conn, Packet(sourceHost, destHost, sourcePort, destPort, 0, 0, 1 << 4, WINDOW_SIZE).build(), False)
 
     if logsClient: print(f'Packets: {numPackets}')
-    # print(packets)
 
-    threading.Thread(target=recvForEver, args=(conn,)).start()
-
-    while base < numPackets:
-        conn.mutex.acquire()
-        while next_to_send < base + window_size:
-            if logsClient: print(f'Sending pck: {next_to_send}')
-            amountSend += send(conn, packets[next_to_send], False)            
+    threading.Thread(target=recvForEver, args=(conn,), daemon = True).start()
+    while conn.base < numPackets:
+        conn.mutex.acquire()        
+        while next_to_send < conn.base + window_size:            
+            if logsClient: print(f'=======> Sending pck: {next_to_send}')
+            amountSend += send(conn, packets[next_to_send], False) 
             next_to_send += 1
 
         if not conn.sendTimer.running():
@@ -146,34 +136,27 @@ def send(conn: Conn, data: bytes, splitData = True) -> int:
                 conn.mutex.acquire()
 
             if conn.sendTimer.timeout():
-                next_to_send = base
+                next_to_send = conn.base
                 conn.sendTimer.stop()
             else:
                 window_size = set_window_size(conn, numPackets)
 
         conn.mutex.release()
 
-    # fin = Packet(sourceHost, destHost, sourcePort, destPort, 0, 0, 1 << 2, WINDOW_SIZE)
-    # send(conn, fin.build(), False)
-
     return amountSend
 
 
 def recv(conn: Conn, length: int = PACKET_SIZE + 20) -> bytes:
-    # global expected_num
     global logsServer
     global logsClient
 
     data = conn.socket.recvfrom(length)[0][20:]
-    print(data)
-    if data[:4] == b'\x00\x0f\x00\x0f':              # token
+    if data[:4] == b'\x00\x0f\x00\x0f':
         # 0:token  1:source 2:destination 3:sourcePort 4:destPort 5:- 6:ACK/SeqNum 7:flags 8:winSize 9:CheckSum 10:data
         pack: list = Packet.unpack(data)
-        # print(f'Packet recv: {pack}')
 
         if validateCheckSum(pack[3:10], pack[10]):
             flags = pack[7]
-            # print(f'flags {flags}')
             if flags & (1 << 3):                    # SYN flag active
                 packetSYN(pack, conn)
                 return b'\x00\x0f\x00\x0f'
@@ -181,32 +164,24 @@ def recv(conn: Conn, length: int = PACKET_SIZE + 20) -> bytes:
                 packetACK(pack, conn)
             elif flags & (1 << 2):                  # FIN flag active
                 pass
-            else:                                   # Recibi datos normales los datos a transmitir
+            elif flags & (1 << 4):                  # NEW [new connection]
+                newSend(conn) 
+            else:                                   # Normal data
                 hostS, portS = parse_address(conn.source)
                 hostD, portD = parse_address(conn.destination)
 
                 if logsServer: print(f'Packet expected {conn.expectedNum}, packet recv {pack[6]}')
                 # Send back an ACK
                 if pack[6] == conn.expectedNum:
-                    # print(f'Recived pack: {expected_num}')
-                    # print('Sending ACK', expected_num)
                     
                     pckACK: Packet = Packet(hostS,hostD, portS, portD, 0, conn.expectedNum, 1 << 6, WINDOW_SIZE, b'')
                     conn.expectedNum += 1
 
-                    # print(pack[10].decode('utf-8'))
-                    # print(conn.source)
-                    # print(conn.destination)
-                    # print(f'Sending pack to {conn.destination} -- {Packet.unpack(pckACK.build())}')
                     send(conn, pckACK.build(), False)
-                    # print(pack[10])
 
                     return pack[10]
                 else:
-                    # print('Sending ACK', expected_num - 1)
-                    # pkt = packet.make(expected_num - 1)
                     pckACK: Packet = Packet(hostS, hostD, portS, portD, 0, conn.expectedNum - 1, 1 << 6, WINDOW_SIZE, b'')
-                    # udt.send(pkt, sock, addr)
                     send(conn, pckACK.build(), False)
 
 def close(conn: Conn):
@@ -216,15 +191,8 @@ def close(conn: Conn):
 def set_window_size(conn: Conn, numPackets: int):
     return min(WINDOW_SIZE, numPackets - conn.base)
 
-
 # (source_port, dest_port, seqNum, ack, flags, WinSize, CheckSum)
 def validateCheckSum(tcp_headers: tuple, data: bytes):
-    # print(f'=====> {type(data)}')
-    # print(f'=====> Data: {data}')
-    # print(f'=====> {len}, {type(len)}')
-    # print(f'=====> {len(data)}')
-    # print(f'=====> Headers: {tcp_headers}')
-    # print(f'=====> Check Sum Value: {abs(~(tcp_headers[0] + tcp_headers[1] >> 1 + tcp_headers[4]) + len(data))} --- Expected: {tcp_headers[6]}')
     return tcp_headers[6] == abs(~(tcp_headers[0] + tcp_headers[1] >> 1 + tcp_headers[4]) + len(data))
 
 
@@ -239,7 +207,8 @@ def packetSYN(pack: list, conn: Conn):
         raise ConnException(f'{conn.destination} is alredy in use. First close connection')
 
     conn.destination = f'{socket.inet_ntoa(pack[10])}:0'
-
+    conn.active = True
+    
     connection_servers[key] = conn
 
     if logsClient: print(f'Connection ok between: {connection_servers[key].source} -- {connection_servers[key].destination}')
@@ -247,19 +216,22 @@ def packetSYN(pack: list, conn: Conn):
 
 def packetACK(pack: list, conn: Conn):
     global logsClient
-    # global base
-    # global mutex
-    
-    if logsClient: print(f'======> Recive pack ACK {pack[6]}')
+        
+    if logsClient: print(f'======> Recive pack ACK {pack[6]}, Base before ++ {conn.base}')
     if conn.base <= pack[6]:  # pack[6] is ACK
         with conn.mutex:
-            base = pack[6] + 1
+            conn.base = pack[6] + 1
             conn.sendTimer.stop()
 
+def newSend(conn: Conn):
+    conn.expectedNum = 0
 
 def recvForEver(conn: Conn):
     while True:
         recv(conn)
+        
+        if conn.base == conn.totalPackets:
+            break
 
 if __name__ == "__main__":
     rol = sys.argv[1]
@@ -282,7 +254,6 @@ if __name__ == "__main__":
         with open(filePath, 'r') as file:
             b = bytes(file.read(), 'utf-8')
             send(conn, b)
-        # send(conn, b'Jose Carlos Hernandez', 0)
-        # time.sleep(2)
-        # send(conn, b'Ciencias de la Computacion', 0)
+        send(conn, b'\nJose Carlos Hernandez')
+        send(conn, b'\nCiencias de la Computacion')
         
