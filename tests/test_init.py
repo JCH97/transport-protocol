@@ -1,9 +1,9 @@
 import unittest
 
+from mininet.node import CPULimitedHost
 from mininet.link import TCLink
 from mininet.log import setLogLevel
 from mininet.net import Mininet
-from mininet.node import CPULimitedHost
 
 from tests import config
 from tests.topos.single_switch import SingleSwitchTopo

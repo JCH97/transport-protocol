@@ -1,8 +1,6 @@
 # Trapy
 
-> Mi Nombre Es La Tiza (ymicorret@mbien.com)
-
-Mi proyecto por supuesto que es la tiza.
+Protocolo de capa de transporte que se asemeja al protocolo TCP
 
 ## Recomendaciones
 
