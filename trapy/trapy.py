@@ -16,7 +16,12 @@ SLEEP_INTERVAL = 0.0005
 TIMEOUT_INTERVAL = 0.005
 WINDOW_SIZE = 5
 
-errors = ["Server isn't running", "First call accept with server connection", "Coonection in use; wait for it to finish sending"]
+#Errors
+SERVER_NOT_RUNNING = "Server isn't running"
+FIRST_CALL_ACCEPT = "First call accept with %s"
+CONNECTION_IN_USE = "Connection in use between %s and %s; wait for it to finish sending"
+SERVER_FIRST = "Data recived, but plase first run server and after client"
+
 logsServer = False
 logsClient = False
 
@@ -39,14 +44,7 @@ class Conn:
 
 
 class ConnException(Exception):
-    def __init__(self, status_code: int, errors_list: list = errors):
-        self.status_code = status_code
-        self.errors_list = errors_list
-
-    @property
-    def getError(self) -> str:
-        return self.errors_list[self.status_code]
-
+   pass
     
 def listen(address: str, logs = False) -> Conn:
     global logsServer
@@ -64,7 +62,7 @@ def listen(address: str, logs = False) -> Conn:
 
 def accept(conn: Conn) -> Conn:
     if conn.destination is not None:
-        raise ConnException(2)
+        raise ConnException(FIRST_CALL_ACCEPT % conn.source)
 
 
 def dial(address: str, logs = False) -> Conn:
@@ -125,7 +123,7 @@ def send(conn: Conn, data: bytes, splitData = True) -> int:
         conn.mutex.acquire()        
         while next_to_send < conn.base + window_size:            
             if logsClient: print(f'=======> Sending pck: {next_to_send}')
-            amountSend += send(conn, packets[next_to_send], False) 
+            send(conn, packets[next_to_send], False) 
             next_to_send += 1
 
         if not conn.sendTimer.running():
@@ -143,7 +141,7 @@ def send(conn: Conn, data: bytes, splitData = True) -> int:
 
         conn.mutex.release()
 
-    return amountSend
+    return len(data)
 
 
 def recv(conn: Conn, length: int = PACKET_SIZE + 20) -> bytes:
@@ -167,6 +165,9 @@ def recv(conn: Conn, length: int = PACKET_SIZE + 20) -> bytes:
             elif flags & (1 << 4):                  # NEW [new connection]
                 newSend(conn) 
             else:                                   # Normal data
+                if conn.destination is None:
+                    raise ConnException(SERVER_FIRST)
+                
                 hostS, portS = parse_address(conn.source)
                 hostD, portD = parse_address(conn.destination)
 
@@ -185,8 +186,9 @@ def recv(conn: Conn, length: int = PACKET_SIZE + 20) -> bytes:
                     send(conn, pckACK.build(), False)
 
 def close(conn: Conn):
-    pass
-
+    conn.socket = conn.destination = conn.source = None
+    if connection_servers.get(conn.source, None) is not None:
+        del connection_servers[conn.source]
 
 def set_window_size(conn: Conn, numPackets: int):
     return min(WINDOW_SIZE, numPackets - conn.base)
@@ -204,7 +206,7 @@ def packetSYN(pack: list, conn: Conn):
     conn: Conn = connection_servers.get(key, None)
 
     if conn is None or conn.destination is not None:
-        raise ConnException(f'{conn.destination} is alredy in use. First close connection')
+        raise ConnException(CONNECTION_IN_USE % (conn.source, conn.destination))
 
     conn.destination = f'{socket.inet_ntoa(pack[10])}:0'
     conn.active = True
