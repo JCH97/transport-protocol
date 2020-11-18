@@ -1,5 +1,4 @@
 from .trapy import *  # noqa: F403
-from .package import *
 
 __all__ = [
     'listen',
@@ -8,5 +7,4 @@ __all__ = [
     'send',
     'recv',
     'close',
-    'package'
 ]

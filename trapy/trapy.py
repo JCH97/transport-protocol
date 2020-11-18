@@ -27,32 +27,32 @@ logsClient = False
 
 connection_servers: dict = {}
 
-
 class Conn:
     def __init__(self, source: str, destination: str = None, sock = None):
         if sock is None:
             sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_TCP)
 
+        self.mutex = threading.Lock()
         self.socket: socket = sock
         self.source: str = source
         self.destination: str = destination
-        self.base = 0
+        self.base: int = 0
         self.sendTimer = Timer(TIMEOUT_INTERVAL)
-        self.mutex = threading.Lock()
-        self.expectedNum = 0
-        self.totalPackets = 0        
+        self.expectedNum: int = 0
+        self.totalPackets: int = 0
+        self.buffer: str = b""
 
 
 class ConnException(Exception):
    pass
-    
+
 def listen(address: str, logs = False) -> Conn:
     global logsServer
     logsServer = logs
-    
+
     conn: Conn = Conn(source = address)
     conn.socket.bind(parse_address(address))
-    
+
     if logsServer: print(f'bind: {parse_address(address)}')
 
     connection_servers[address] = conn
@@ -68,14 +68,14 @@ def accept(conn: Conn) -> Conn:
 def dial(address: str, logs = False) -> Conn:
     global logsClient
     logsClient = logs
-    
+
     host, port = parse_address(address)
 
     ipClient: str = (subprocess.run(["ip", "route", "get", "to", host],
                                     universal_newlines=True, stdout=subprocess.PIPE).stdout.splitlines())[-2].split(' ')[-4]
 
     clientConnection: Conn = Conn(f'{ipClient}:{0}', address)
-    
+
     data = socket.inet_aton(ipClient)
     pck: Packet = Packet(ipClient, host, 0, port, 0, random.randint(0, 1000) * 11 + 1, 1 << 3, WINDOW_SIZE, data)
 
@@ -88,11 +88,10 @@ def dial(address: str, logs = False) -> Conn:
 def send(conn: Conn, data: bytes, splitData = True) -> int:
     global logsServer
     global logsClient
-    amountSend = 0   
-    
+
     if not splitData:
         return conn.socket.sendto(data, parse_address(conn.destination))
-    
+
     packets = []
     seq_num = 0
     indx = 0
@@ -109,7 +108,7 @@ def send(conn: Conn, data: bytes, splitData = True) -> int:
 
     numPackets = len(packets)
     conn.totalPackets = numPackets
-    
+
     next_to_send = 0
     conn.base = 0
     window_size = set_window_size(conn, numPackets)
@@ -120,10 +119,10 @@ def send(conn: Conn, data: bytes, splitData = True) -> int:
 
     threading.Thread(target=recvForEver, args=(conn,), daemon = True).start()
     while conn.base < numPackets:
-        conn.mutex.acquire()        
-        while next_to_send < conn.base + window_size:            
+        conn.mutex.acquire()
+        while next_to_send < conn.base + window_size:
             if logsClient: print(f'=======> Sending pck: {next_to_send}')
-            send(conn, packets[next_to_send], False) 
+            send(conn, packets[next_to_send], False)
             next_to_send += 1
 
         if not conn.sendTimer.running():
@@ -144,7 +143,7 @@ def send(conn: Conn, data: bytes, splitData = True) -> int:
     return len(data)
 
 
-def recv(conn: Conn, length: int = PACKET_SIZE + 20) -> bytes:
+def recv(conn: Conn, length: int = 512) -> bytes:
     global logsServer
     global logsClient
 
@@ -153,34 +152,51 @@ def recv(conn: Conn, length: int = PACKET_SIZE + 20) -> bytes:
         # 0:token  1:source 2:destination 3:sourcePort 4:destPort 5:- 6:ACK/SeqNum 7:flags 8:winSize 9:CheckSum 10:data
         pack: list = Packet.unpack(data)
 
-        if validateCheckSum(pack[3:10], pack[10]):
+        if Packet.check_sum(data[:28] + data[32:]) == pack[9]:
             flags = pack[7]
             if flags & (1 << 3):                    # SYN flag active
                 packetSYN(pack, conn)
-                return b'\x00\x0f\x00\x0f'
+                return recv(conn, length)
             elif flags & (1 << 6):                  # ACK flag active
                 packetACK(pack, conn)
+                return recv(conn, length)
             elif flags & (1 << 2):                  # FIN flag active
                 pass
             elif flags & (1 << 4):                  # NEW [new connection]
-                newSend(conn) 
+                newSend(conn)
+                return recv(conn, length)
             else:                                   # Normal data
                 if conn.destination is None:
                     raise ConnException(SERVER_FIRST)
-                
+
                 hostS, portS = parse_address(conn.source)
                 hostD, portD = parse_address(conn.destination)
 
                 if logsServer: print(f'Packet expected {conn.expectedNum}, packet recv {pack[6]}')
                 # Send back an ACK
                 if pack[6] == conn.expectedNum:
-                    
+
                     pckACK: Packet = Packet(hostS,hostD, portS, portD, 0, conn.expectedNum, 1 << 6, WINDOW_SIZE, b'')
                     conn.expectedNum += 1
 
                     send(conn, pckACK.build(), False)
 
-                    return pack[10]
+                    conn.buffer += pack[10]
+                    print(len(conn.buffer))
+                    if logsServer: print(f'Buffer ======> {conn.buffer}\n')
+
+                    if len(conn.buffer) >= length:
+                        ans = conn.buffer[:length]
+                        conn.buffer = conn.buffer[length:]
+
+                        print(ans)
+                        print(len(ans))
+                        print(len(conn.buffer))
+
+                        return ans
+                    else:
+                        return recv(conn, length)
+
                 else:
                     pckACK: Packet = Packet(hostS, hostD, portS, portD, 0, conn.expectedNum - 1, 1 << 6, WINDOW_SIZE, b'')
                     send(conn, pckACK.build(), False)
@@ -199,7 +215,7 @@ def validateCheckSum(tcp_headers: tuple, data: bytes):
 
 
 def packetSYN(pack: list, conn: Conn):
-    global logsClient
+    global logsServer
 
     # El objeto conn que llega es una conxion de server, hay que ponerle aqui el ip del cliente
     key = f'{pack[2]}:{pack[4]}'
@@ -209,16 +225,15 @@ def packetSYN(pack: list, conn: Conn):
         raise ConnException(CONNECTION_IN_USE % (conn.source, conn.destination))
 
     conn.destination = f'{socket.inet_ntoa(pack[10])}:0'
-    conn.active = True
-    
+
     connection_servers[key] = conn
 
-    if logsClient: print(f'Connection ok between: {connection_servers[key].source} -- {connection_servers[key].destination}')
+    if logsServer: print(f'Connection ok between: {connection_servers[key].source} -- {connection_servers[key].destination}')
 
 
 def packetACK(pack: list, conn: Conn):
     global logsClient
-        
+
     if logsClient: print(f'======> Recive pack ACK {pack[6]}, Base before ++ {conn.base}')
     if conn.base <= pack[6]:  # pack[6] is ACK
         with conn.mutex:
@@ -231,7 +246,7 @@ def newSend(conn: Conn):
 def recvForEver(conn: Conn):
     while True:
         recv(conn)
-        
+
         if conn.base == conn.totalPackets:
             break
 
@@ -241,21 +256,27 @@ if __name__ == "__main__":
     ip = '10.0.0.1:0'
 
     if rol == 's':
-        server = listen(ip, True)
+        server = listen(ip)
         accept(server)
-        while True:
-            data = recv(server)
+        # while True:
+        #     data = recv(server)
 
-            if data is not None and not data == b'\x00\x0f\x00\x0f':
-                with open(Path.cwd() / 'tests' / 'data' / 'out.txt', mode="a") as file:
-                        file.write(data.decode('utf-8'))
+        #     if data is not None and not data == b'\x00\x0f\x00\x0f':
+        #         with open(Path.cwd() / 'tests' / 'data' / 'out.txt', mode="a") as file:
+        #                 file.write(data.decode('utf-8'))
+
+        data = recv(server, 2048)
+        print(len(data))
+        with open(Path.cwd() / 'tests' / 'data' / 'out.txt', mode="w") as file:
+            file.write(data.decode('utf-8'))
+
 
     if rol == 'c':
         filePath = Path.cwd() / 'tests' / 'data' / 'data.txt'
-        conn: Conn = dial(ip, True)        
+        conn: Conn = dial(ip, True)
         with open(filePath, 'r') as file:
             b = bytes(file.read(), 'utf-8')
             send(conn, b)
-        send(conn, b'\nJose Carlos Hernandez')
-        send(conn, b'\nCiencias de la Computacion')
-        
+        # send(conn, b'\nJose Carlos Hernandez')
+        # send(conn, b'\nCiencias de la Computacion')
+

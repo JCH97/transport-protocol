@@ -15,21 +15,31 @@ class Packet:
         self.flags = flags
         self.winSize = winSize
         self.data = data
-        self.checkSum = self.check_sum()
 
     def build(self) -> bytes:
-        tcp_headers: bytes = struct.pack('!2h2i2hi', self.sourcePort, self.destinationPort,
-                                         self.seqNumber, self.ack, self.flags, self.winSize, self.check_sum())
         ip_header = b'\x00\x0f\x00\x0f'  # token
         ip_header += socket.inet_aton(self.sourceAddress)
         ip_header += socket.inet_aton(self.destinationAddress)
 
+        tcp_headers_out_checkSum: bytes = struct.pack('!2h2i2h', self.sourcePort, self.destinationPort,
+                                         self.seqNumber, self.ack, self.flags, self.winSize)
+
+        tcp_headers: bytes = struct.pack('!2h2i2hi', self.sourcePort, self.destinationPort,
+                                         self.seqNumber, self.ack, self.flags, self.winSize, Packet.check_sum(ip_header + tcp_headers_out_checkSum + self.data))
+
+
         return ip_header + tcp_headers + self.data
 
-    def check_sum(self) -> int:
-        # print(self.data)
-        # print(f'Build checkSum: {self.sourcePort}, {self.destinationPort >> 1}, {self.flags}, {len(self.data)}')
-        return abs(~(self.sourcePort + self.destinationPort >> 1 + self.flags) + len(self.data))
+    @staticmethod
+    def check_sum(info: bytes) -> int:
+        start: int = 0
+        ans: int = 0
+
+        while(start < len(info)):
+            ans += int.from_bytes(info[start: start + 2], "little")
+            start += 2
+
+        return abs(ans)
 
     @staticmethod
     def unpack(packet: bytes) -> list:
