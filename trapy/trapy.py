@@ -112,6 +112,7 @@ def send(conn: Conn, data: bytes, splitData = True, flags: int = 0) -> int:
 
     # t = threading.Thread(target=recvForEver, args=(conn,))
     stop = False
+    # time.sleep(1)
     t = thread(target = recvForEver, args = (conn,))
     t.start()
     while conn.base < numPackets:
@@ -137,9 +138,10 @@ def send(conn: Conn, data: bytes, splitData = True, flags: int = 0) -> int:
         conn.mutex.release()
 
     stop = True
-    # time.sleep(TIMEOUT_INTERVAL)
     t.kill()
     t.join()
+
+    time.sleep(TIMEOUT_INTERVAL)
 
     if not t.isAlive():
         if logs: print('thread killed')
@@ -150,8 +152,14 @@ def send(conn: Conn, data: bytes, splitData = True, flags: int = 0) -> int:
 def recv(conn: Conn, length: int = 512) -> bytes:
     global logs
 
-    data = conn.socket.recvfrom(length + 52)[0][20:]
-    if data[:4] == b'\x00\x0f\x00\x0f':
+    if len(conn.buffer) >= length or conn.expectedNum > conn.totalPackets:
+        ans = conn.buffer[:length]
+        conn.buffer = conn.buffer[length:]
+        return ans
+
+    data = conn.socket.recvfrom(532)[0][20:]
+
+    if data is not None and data[:4] == b'\x00\x0f\x00\x0f':
         # 0:token  1:source 2:destination 3:sourcePort 4:destPort 5:- 6:ACK/SeqNum 7:flags 8:winSize 9:CheckSum 10:data
         pack: list = Packet.unpack(data)
 
@@ -190,12 +198,15 @@ def recv(conn: Conn, length: int = 512) -> bytes:
 
                     conn.buffer += pack[10]
 
-                    # if logs: print(f'Buffer ======> {conn.buffer}\n')
 
                     if logs: print(f'from {conn.source} {conn.expectedNum} {conn.totalPackets} {len(conn.buffer)} {length} data=> {pack[10]}')
                     if len(conn.buffer) >= length or conn.expectedNum >= conn.totalPackets:
+                        # print(f'Buffer ======> {conn.buffer}\n')
+
                         ans = conn.buffer[:length]
                         conn.buffer = conn.buffer[length:]
+
+                        # print(f'Ans ========> {ans}\n')
 
                         return ans
                     else:
@@ -249,20 +260,22 @@ def newSend(conn: Conn, total: int):
 
 def recvForEver(conn: Conn):
     global stop
-    conn.socket.setblocking(False)
-    while True:
+    while not stop:
+        conn.socket.setblocking(False)
         # if logs: print(f'For ever {stop}')
         try:
-            recv(conn)
+            x = recv(conn)
+            print(f'Recived from forEver {x}')
+            print(f'Buffer {conn.buffer}')
         except socket.error:
             # if logs: print('into error')
             # time.sleep(SLEEP_INTERVAL)
             pass
 
+        conn.socket.setblocking(True)
         if stop or conn.base >= conn.totalPackets:
             if logs: print('into break', stop, conn.base, conn.totalPackets)
             break
-    conn.socket.setblocking(True)
     if logs: print('Block socket')
 
 if __name__ == "__main__":
@@ -280,7 +293,7 @@ if __name__ == "__main__":
         #         with open(Path.cwd() / 'tests' / 'data' / 'out.txt', mode="a") as file:
         #                 file.write(data.decode('utf-8'))
         # time.sleep(5)
-
+        c = 4
         while True:
             data = recv(server, 5000)
             print(f'Recived {len(data)}')
