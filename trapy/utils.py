@@ -2,14 +2,7 @@ from package import Packet
 from typing import List
 
 def parse_address(address):
-    host: str = ''
-    port: int = 0
-
-    try:
-        host, port = address.split(':')
-    except AttributeError:
-        host = '0.0.0.0'
-
+    host, port = address.split(':')
     if host == '':
         host = 'localhost'
 
