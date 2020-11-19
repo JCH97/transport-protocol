@@ -64,6 +64,8 @@ def accept(conn: Conn) -> Conn:
     if conn.destination is not None:
         raise ConnException(FIRST_CALL_ACCEPT % conn.source)
 
+    return conn
+
 
 def dial(address: str, logs = False) -> Conn:
     global logsClient
@@ -99,7 +101,7 @@ def send(conn: Conn, data: bytes, splitData = True, flags: int = 0) -> int:
     conn.base = 0
     window_size = set_window_size(conn, numPackets)
 
-    send(conn, Packet(sourceHost, destHost, sourcePort, destPort, 0, 0, 1 << 4, WINDOW_SIZE).build(), False)
+    send(conn, Packet(sourceHost, destHost, sourcePort, destPort, 0, 0, 1 << 4, WINDOW_SIZE, str(numPackets).encode('utf-8')).build(), False)    #new group packets to send
 
     if logsClient: print(f'Packets: {numPackets}')
 
@@ -155,11 +157,9 @@ def recv(conn: Conn, length: int = 512) -> bytes:
             elif flags & (1 << 2):                  # FIN flag active
                 pass
             elif flags & (1 << 4):                  # NEW [new connection]
-                newSend(conn)
+                newSend(conn, int(pack[10].decode('utf-8')))
                 return recv(conn, length)
             else:                                   # Normal data
-                if conn.destination is None:
-                    raise ConnException(SERVER_FIRST)
 
                 hostS, portS = parse_address(conn.source)
                 hostD, portD = parse_address(conn.destination)
@@ -174,16 +174,13 @@ def recv(conn: Conn, length: int = 512) -> bytes:
                     send(conn, pckACK.build(), False)
 
                     conn.buffer += pack[10]
-                    print(len(conn.buffer))
-                    if logsServer: print(f'Buffer ======> {conn.buffer}\n')
 
-                    if len(conn.buffer) >= length:
+                    # if logsServer: print(f'Buffer ======> {conn.buffer}\n')
+
+                    # print('here', conn.expectedNum, conn.totalPackets)
+                    if len(conn.buffer) >= length or conn.expectedNum > conn.totalPackets:
                         ans = conn.buffer[:length]
                         conn.buffer = conn.buffer[length:]
-
-                        print(ans)
-                        print(len(ans))
-                        print(len(conn.buffer))
 
                         return ans
                     else:
@@ -192,6 +189,8 @@ def recv(conn: Conn, length: int = 512) -> bytes:
                 else:
                     pckACK: Packet = Packet(hostS, hostD, portS, portD, 0, conn.expectedNum - 1, 1 << 6, WINDOW_SIZE, b'')
                     send(conn, pckACK.build(), False)
+    else:
+        return recv(conn, length)
 
 def close(conn: Conn):
     conn.socket = conn.destination = conn.source = None
@@ -228,8 +227,9 @@ def packetACK(pack: list, conn: Conn):
             conn.base = pack[6] + 1
             conn.sendTimer.stop()
 
-def newSend(conn: Conn):
+def newSend(conn: Conn, total: int):
     conn.expectedNum = 0
+    conn.totalPackets = total
 
 def recvForEver(conn: Conn):
     while True:
@@ -245,7 +245,7 @@ if __name__ == "__main__":
 
     if rol == 's':
         server = listen(ip, True)
-        accept(server)
+        server = accept(server)
         # while True:
         #     data = recv(server)
 
@@ -253,18 +253,18 @@ if __name__ == "__main__":
         #         with open(Path.cwd() / 'tests' / 'data' / 'out.txt', mode="a") as file:
         #                 file.write(data.decode('utf-8'))
 
-        data = recv(server, 2048)
-        print(len(data))
-        with open(Path.cwd() / 'tests' / 'data' / 'out.txt', mode="w") as file:
-            file.write(data.decode('utf-8'))
-
-
-    if rol == 'c':
         filePath = Path.cwd() / 'tests' / 'data' / 'data.txt'
-        conn: Conn = dial(ip, True)
+
         with open(filePath, 'r') as file:
             b = bytes(file.read(), 'utf-8')
-            send(conn, b)
+            send(server, b)
+
+    if rol == 'c':
+        conn: Conn = dial(ip, True)
+        data = recv(conn, 2048)
+        print(f'Recived {len(data)}')
+        with open(Path.cwd() / 'tests' / 'data' / 'out.txt', mode="w") as file:
+            file.write(data.decode('utf-8'))
         # send(conn, b'\nJose Carlos Hernandez')
         # send(conn, b'\nCiencias de la Computacion')
 
