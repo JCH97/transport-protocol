@@ -1,7 +1,7 @@
-from utils import parse_address
+from utils import parse_address, build_acks, build_packets
 from package import Packet
 from timer import Timer
-from typing import Dict
+from typing import Dict, List
 from pathlib import Path
 import socket
 import subprocess
@@ -88,21 +88,11 @@ def send(conn: Conn, data: bytes, splitData = True, flags: int = 0) -> int:
     if not splitData:
         return conn.socket.sendto(data, parse_address(conn.destination))
 
-    packets = []
-    seq_num = 0
-    indx = 0
-
     sourceHost, sourcePort = parse_address(conn.source)
     destHost, destPort = parse_address(conn.destination)
 
-    while indx <= len(data):
-        d = data[indx:indx + PACKET_SIZE - 32]
-        pck: Packet = Packet(sourceHost, destHost, sourcePort, destPort, 0, seq_num, flags, WINDOW_SIZE, d)
-        packets.append(pck.build())
-        seq_num += 1
-        indx += (PACKET_SIZE - 32)
-
-    numPackets = len(packets)
+    packets: List[Packet] =  build_packets(data, PACKET_SIZE, WINDOW_SIZE, sourceHost, sourcePort, destHost, destPort, flags)
+    numPackets: int = len(packets)
     conn.totalPackets = numPackets
 
     next_to_send = 0
