@@ -19,6 +19,7 @@ SLEEP_INTERVAL = 0.0005
 TIMEOUT_INTERVAL = 0.005
 WINDOW_SIZE = 5
 stop = False
+otherRecv = False
 
 #Errors
 SERVER_NOT_RUNNING = "Server isn't running"
@@ -141,7 +142,7 @@ def send(conn: Conn, data: bytes, splitData = True, flags: int = 0) -> int:
     t.kill()
     t.join()
 
-    time.sleep(TIMEOUT_INTERVAL)
+    # time.sleep(TIMEOUT_INTERVAL)
 
     if not t.isAlive():
         if logs: print('thread killed')
@@ -151,10 +152,14 @@ def send(conn: Conn, data: bytes, splitData = True, flags: int = 0) -> int:
 
 def recv(conn: Conn, length: int = 512) -> bytes:
     global logs
+    global otherRecv
 
-    if len(conn.buffer) >= length or conn.expectedNum > conn.totalPackets:
+    # print(len(conn.buffer), length, conn.expectedNum, conn.totalPackets)
+
+    if len(conn.buffer) > 0 and not otherRecv and (len(conn.buffer) >= length or conn.expectedNum >= conn.totalPackets):
         ans = conn.buffer[:length]
         conn.buffer = conn.buffer[length:]
+        print('in if first')
         return ans
 
     data = conn.socket.recvfrom(532)[0][20:]
@@ -200,8 +205,13 @@ def recv(conn: Conn, length: int = 512) -> bytes:
 
 
                     if logs: print(f'from {conn.source} {conn.expectedNum} {conn.totalPackets} {len(conn.buffer)} {length} data=> {pack[10]}')
+
+                    if otherRecv:
+                        print("is other recv")
+                        return None
+
                     if len(conn.buffer) >= length or conn.expectedNum >= conn.totalPackets:
-                        # print(f'Buffer ======> {conn.buffer}\n')
+                        print(f'Buffer ======> {conn.buffer} Recv: {otherRecv}\n')
 
                         ans = conn.buffer[:length]
                         conn.buffer = conn.buffer[length:]
@@ -260,11 +270,16 @@ def newSend(conn: Conn, total: int):
 
 def recvForEver(conn: Conn):
     global stop
+    global otherRecv
+
     while not stop:
         conn.socket.setblocking(False)
         # if logs: print(f'For ever {stop}')
         try:
+            otherRecv = True
+            # print("before forever\n")
             x = recv(conn)
+            otherRecv = False
             print(f'Recived from forEver {x}')
             print(f'Buffer {conn.buffer}')
         except socket.error:
