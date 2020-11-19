@@ -74,18 +74,14 @@ def dial(address: str, logs = False) -> Conn:
     ipClient: str = (subprocess.run(["ip", "route", "get", "to", host],
                                     universal_newlines=True, stdout=subprocess.PIPE).stdout.splitlines())[-2].split(' ')[-4]
 
-    clientConnection: Conn = Conn(f'{ipClient}:{0}', address)
+    clientConnection: Conn = Conn(f'{ipClient}:{port}', address)
 
-    data = socket.inet_aton(ipClient)
-    pck: Packet = Packet(ipClient, host, 0, port, 0, random.randint(0, 1000) * 11 + 1, 1 << 3, WINDOW_SIZE, data)
-
-    send(clientConnection, pck.build(), False)  # paquete de SYN
-    if logsClient: print(f'Packet send: {Packet.unpack(pck.build())}')
+    send(clientConnection, socket.inet_aton(ipClient), flags = 1 << 3)  # paquete de SYN
     if logsClient: print('send packet SYN')
 
     return clientConnection
 
-def send(conn: Conn, data: bytes, splitData = True) -> int:
+def send(conn: Conn, data: bytes, splitData = True, flags: int = 0) -> int:
     global logsServer
     global logsClient
 
@@ -101,7 +97,7 @@ def send(conn: Conn, data: bytes, splitData = True) -> int:
 
     while indx <= len(data):
         d = data[indx:indx + PACKET_SIZE - 32]
-        pck: Packet = Packet(sourceHost, destHost, sourcePort, destPort, 0, seq_num, 0, WINDOW_SIZE, d)
+        pck: Packet = Packet(sourceHost, destHost, sourcePort, destPort, 0, seq_num, flags, WINDOW_SIZE, d)
         packets.append(pck.build())
         seq_num += 1
         indx += (PACKET_SIZE - 32)
@@ -147,7 +143,7 @@ def recv(conn: Conn, length: int = 512) -> bytes:
     global logsServer
     global logsClient
 
-    data = conn.socket.recvfrom(length)[0][20:]
+    data = conn.socket.recvfrom(length + 52)[0][20:]
     if data[:4] == b'\x00\x0f\x00\x0f':
         # 0:token  1:source 2:destination 3:sourcePort 4:destPort 5:- 6:ACK/SeqNum 7:flags 8:winSize 9:CheckSum 10:data
         pack: list = Packet.unpack(data)
@@ -156,6 +152,12 @@ def recv(conn: Conn, length: int = 512) -> bytes:
             flags = pack[7]
             if flags & (1 << 3):                    # SYN flag active
                 packetSYN(pack, conn)
+
+                hostS, portS = parse_address(conn.source)
+                hostD, portD = parse_address(conn.destination)
+
+                send(conn, Packet(hostS, hostD, portS, portD, 0, 0, 1 << 6, WINDOW_SIZE, b'').build(), False)
+
                 return recv(conn, length)
             elif flags & (1 << 6):                  # ACK flag active
                 packetACK(pack, conn)
@@ -209,10 +211,6 @@ def close(conn: Conn):
 def set_window_size(conn: Conn, numPackets: int):
     return min(WINDOW_SIZE, numPackets - conn.base)
 
-# (source_port, dest_port, seqNum, ack, flags, WinSize, CheckSum)
-def validateCheckSum(tcp_headers: tuple, data: bytes):
-    return tcp_headers[6] == abs(~(tcp_headers[0] + tcp_headers[1] >> 1 + tcp_headers[4]) + len(data))
-
 
 def packetSYN(pack: list, conn: Conn):
     global logsServer
@@ -256,7 +254,7 @@ if __name__ == "__main__":
     ip = '10.0.0.1:0'
 
     if rol == 's':
-        server = listen(ip)
+        server = listen(ip, True)
         accept(server)
         # while True:
         #     data = recv(server)
