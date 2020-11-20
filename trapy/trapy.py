@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List
 from pathlib import Path
 import socket, subprocess, random, threading, time, sys
 
@@ -18,8 +18,9 @@ FIRST_CALL_ACCEPT = "First call accept with %s"
 CONNECTION_IN_USE = "Connection in use between %s and %s; wait for it to finish sending"
 SERVER_FIRST = "Data recived, but plase first run server and after client"
 
+#Utils
 logs = False
-
+sending = False
 connection_servers: dict = {}
 
 class Conn:
@@ -81,14 +82,15 @@ def dial(address: str, log = False) -> Conn:
 
 def send(conn: Conn, data: bytes, splitData = True, flags: int = 0) -> int:
     global logs
+    global sending
 
     if not splitData:
         return conn.socket.sendto(data, parse_address(conn.destination))
 
-    packets = []
-    seq_num = 0
-    indx = 0
-    numPackets = 0
+    packets: List[Packet] = []
+    seq_num: int = 0
+    indx: int = 0
+    numPackets: int = 0
 
     sourceHost, sourcePort = parse_address(conn.source)
     destHost, destPort = parse_address(conn.destination)
@@ -107,12 +109,13 @@ def send(conn: Conn, data: bytes, splitData = True, flags: int = 0) -> int:
 
     conn.totalPackets = numPackets
 
-    next_to_send = 0
+    next_to_send: int = 0
     conn.base = 0
-    window_size = set_window_size(conn, numPackets)
+    window_size = setWindowSize(conn, numPackets)
 
     if logs: print(f'Packets: {numPackets}')
 
+    sending = True
     threading.Thread(target=recvForEver, args=(conn,), daemon = True).start()
     while conn.base < numPackets:
         conn.mutex.acquire()
@@ -132,16 +135,15 @@ def send(conn: Conn, data: bytes, splitData = True, flags: int = 0) -> int:
                 next_to_send = conn.base
                 conn.sendTimer.stop()
             else:
-                window_size = set_window_size(conn, numPackets)
+                window_size = setWindowSize(conn, numPackets)
 
         conn.mutex.release()
-
+    sending = False
     return len(data)
 
 
 def recv(conn: Conn, length: int = 512) -> bytes:
     global logs
-
 
     data = conn.socket.recvfrom(PACKET_SIZE + 52)[0][20:]
 
@@ -164,7 +166,7 @@ def recv(conn: Conn, length: int = 512) -> bytes:
                     send(conn, pckACK.build(), False)
 
                     conn.buffer += pack[10]
-                    print(len(conn.buffer))
+                    if logs: print(f'Len buffer {len(conn.buffer)}')
                     if logs: print(f'Buffer ======> {conn.buffer}\n')
 
                     if len(conn.buffer) >= length or conn.expectedNum >= pack[5]:
@@ -202,17 +204,14 @@ def recvWithFlags(conn: Conn):
                 packetACK(pack, conn)
             elif flags & (1 << 2):                  # FIN flag active
                 pass
-            elif flags & (1 << 4):                  # NEW [new connection]
-                newSend(conn)
 
 def close(conn: Conn):
     conn.socket = conn.destination = conn.source = None
     if connection_servers.get(conn.source, None) is not None:
         del connection_servers[conn.source]
 
-def set_window_size(conn: Conn, numPackets: int):
+def setWindowSize(conn: Conn, numPackets: int) -> int:
     return min(WINDOW_SIZE, numPackets - conn.base)
-
 
 def packetSYN(pack: list, conn: Conn):
     global logs
@@ -240,15 +239,10 @@ def packetACK(pack: list, conn: Conn):
             conn.base = pack[6] + 1
             conn.sendTimer.stop()
 
-def newSend(conn: Conn):
-    conn.expectedNum = 0
-
 def recvForEver(conn: Conn):
-    while True:
+    global sending
+    while sending:
         recvWithFlags(conn)
-
-        if conn.base == conn.totalPackets:
-            break
 
 if __name__ == "__main__":
     rol = sys.argv[1]

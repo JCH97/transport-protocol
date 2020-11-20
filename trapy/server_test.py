@@ -1,35 +1,36 @@
-import sys, getopt
+from pathlib import Path, PosixPath
+
 from trapy import listen, accept, send, recv, close, Conn
 
-host = "10.0.0.1"
-port = 0
+host: str = "10.0.0.1"
+port: int = 0
 
-print("-------------SERVER---------------")
-server = listen(host + f":{port}")
-server_1: Conn = accept(server)
-c = 0
-while server_1 != None and c < 5:
-    r = recv(server_1, 70)
-    print(f'Recived {r} {len(r)}')
-    send(server_1, r)
-    c += 1
-close(server)
+def test1(server: Conn):
+    toRecv: int = 15000
 
+    r: bytes = recv(server, toRecv)
+    rr: int = send(server, r)
 
-# r = recv(server_1, 60)
-# print(f'Recived {r} {len(r)}')
-# send(server_1, b"Jose Carlos Hdez 1")
+    print(f'Recv {len(r)}')
+    print(f'Send {rr}')
 
-# r = recv(server_1, 60)
-# print(f'Recived {r} {len(r)}')
-# send(server_1, b"Jose Carlos Hdez 2")
+    assert len(r) == rr
+    print('---------------------------------------Success------------------------------------------')
 
-# r = recv(server_1, 60)
-# print(f'Recived {r} {len(r)}')
-# send(server_1, b"Jose Carlos Hdez 3")
+def test2(server: Conn):
+    c: int = 0
+    while server != None and c < 5:
+        r = recv(server, 70)
+        print(f'Recived {r} {len(r)}')
+        send(server, r)
+        c += 1
 
-# r = recv(server_1, 60)
-# print(f'Recived {r} {len(r)}')
-# send(server_1, b"Jose Carlos Hdez 4")
+if __name__ == "__main__":
+    print("-------------------------------------SERVER------------------------------------------")
+    server: Conn = listen(f'{host}:{port}')
+    server = accept(server)
 
+    test1(server)
+    test2(server)
 
+    close(server)
