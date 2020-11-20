@@ -1,14 +1,10 @@
+from typing import Dict
+from pathlib import Path
+import socket, subprocess, random, threading, time, sys
+
 from utils import parse_address
 from package import Packet
 from timer import Timer
-from typing import Dict
-from pathlib import Path
-import socket
-import subprocess
-import random
-import threading
-import time
-import sys
 
 #Data
 PACKET_SIZE = 512
@@ -22,8 +18,7 @@ FIRST_CALL_ACCEPT = "First call accept with %s"
 CONNECTION_IN_USE = "Connection in use between %s and %s; wait for it to finish sending"
 SERVER_FIRST = "Data recived, but plase first run server and after client"
 
-logsServer = False
-logsClient = False
+logs = False
 
 connection_servers: dict = {}
 
@@ -46,14 +41,14 @@ class Conn:
 class ConnException(Exception):
    pass
 
-def listen(address: str, logs = False) -> Conn:
-    global logsServer
-    logsServer = logs
+def listen(address: str, log = False) -> Conn:
+    global logs
+    logs = log
 
     conn: Conn = Conn(source = address)
     conn.socket.bind(parse_address(address))
 
-    if logsServer: print(f'bind: {parse_address(address)}')
+    if logs: print(f'bind: {parse_address(address)}')
 
     connection_servers[address] = conn
 
@@ -68,9 +63,9 @@ def accept(conn: Conn) -> Conn:
     return conn
 
 
-def dial(address: str, logs = False) -> Conn:
-    global logsClient
-    logsClient = logs
+def dial(address: str, log = False) -> Conn:
+    global logs
+    logs= log
 
     host, port = parse_address(address)
 
@@ -80,13 +75,12 @@ def dial(address: str, logs = False) -> Conn:
     clientConnection: Conn = Conn(f'{ipClient}:{port}', address)
 
     send(clientConnection, socket.inet_aton(ipClient), flags = 1 << 3)  # paquete de SYN
-    if logsClient: print('send packet SYN')
+    if logs: print('send packet SYN')
 
     return clientConnection
 
 def send(conn: Conn, data: bytes, splitData = True, flags: int = 0) -> int:
-    global logsServer
-    global logsClient
+    global logs
 
     if not splitData:
         return conn.socket.sendto(data, parse_address(conn.destination))
@@ -117,15 +111,13 @@ def send(conn: Conn, data: bytes, splitData = True, flags: int = 0) -> int:
     conn.base = 0
     window_size = set_window_size(conn, numPackets)
 
-    # send(conn, Packet(sourceHost, destHost, sourcePort, destPort, 0, 0, 1 << 4, WINDOW_SIZE).build(), False)
-
-    if logsClient: print(f'Packets: {numPackets}')
+    if logs: print(f'Packets: {numPackets}')
 
     threading.Thread(target=recvForEver, args=(conn,), daemon = True).start()
     while conn.base < numPackets:
         conn.mutex.acquire()
         while next_to_send < conn.base + window_size:
-            if logsClient: print(f'=======> Sending pck: {next_to_send}')
+            if logs: print(f'=======> Sending pck: {next_to_send}')
             send(conn, packets[next_to_send], False)
             next_to_send += 1
 
@@ -148,8 +140,8 @@ def send(conn: Conn, data: bytes, splitData = True, flags: int = 0) -> int:
 
 
 def recv(conn: Conn, length: int = 512) -> bytes:
-    global logsServer
-    global logsClient
+    global logs
+
 
     data = conn.socket.recvfrom(PACKET_SIZE + 52)[0][20:]
 
@@ -162,7 +154,7 @@ def recv(conn: Conn, length: int = 512) -> bytes:
                 hostS, portS = parse_address(conn.source)
                 hostD, portD = parse_address(conn.destination)
 
-                if logsServer: print(f'Packet expected {conn.expectedNum}, packet recv {pack[6]}')
+                if logs: print(f'Packet expected {conn.expectedNum}, packet recv {pack[6]}')
                 # Send back an ACK
                 if pack[6] == conn.expectedNum:
 
@@ -173,19 +165,14 @@ def recv(conn: Conn, length: int = 512) -> bytes:
 
                     conn.buffer += pack[10]
                     print(len(conn.buffer))
-                    if logsServer: print(f'Buffer ======> {conn.buffer}\n')
+                    if logs: print(f'Buffer ======> {conn.buffer}\n')
 
-
-                    #aqui se espera a tener en el buffer el length necesario para devolver
-                    #si se quiere cambiar poner el if de abajo junto al if de mas abajo y poner la condicion dentro del mismo
-                    #seria asi if len(conn.buffer) >= length or conn.expectedNum >= pack[5]
-
-                    if conn.expectedNum >= pack[5]:
-                        conn.expectedNum = 0
-
-                    if len(conn.buffer) >= length:
+                    if len(conn.buffer) >= length or conn.expectedNum >= pack[5]:
                         ans = conn.buffer[:length]
                         conn.buffer = conn.buffer[length:]
+
+                        if conn.expectedNum >= pack[5]:
+                            conn.expectedNum = 0
 
                         return ans
                 else:
@@ -228,7 +215,7 @@ def set_window_size(conn: Conn, numPackets: int):
 
 
 def packetSYN(pack: list, conn: Conn):
-    global logsServer
+    global logs
 
     # El objeto conn que llega es una conxion de server, hay que ponerle aqui el ip del cliente
     key = f'{pack[2]}:{pack[4]}'
@@ -241,13 +228,13 @@ def packetSYN(pack: list, conn: Conn):
 
     connection_servers[key] = conn
 
-    if logsServer: print(f'Connection ok between: {connection_servers[key].source} -- {connection_servers[key].destination}')
+    if logs: print(f'Connection ok between: {connection_servers[key].source} -- {connection_servers[key].destination}')
 
 
 def packetACK(pack: list, conn: Conn):
-    global logsClient
+    global logs
 
-    if logsClient: print(f'======> Recive pack ACK {pack[6]}')
+    if logs: print(f'======> Recive pack ACK {pack[6]}')
     if conn.base <= pack[6]:  # pack[6] is ACK
         with conn.mutex:
             conn.base = pack[6] + 1
