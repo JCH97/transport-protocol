@@ -3,7 +3,7 @@ from pathlib import Path, PosixPath
 from trapy import listen, accept, send, recv, close, Conn
 
 host: str = "10.0.0.1"
-port: int = 0
+port: int = 10
 
 def test1(server: Conn):
     toRecv: int = 15000
@@ -27,10 +27,10 @@ def test2(server: Conn):
 
 if __name__ == "__main__":
     print("-------------------------------------SERVER------------------------------------------")
-    server: Conn = listen(f'{host}:{port}')
+    server: Conn = listen(f'{host}:{port}', True)
     server = accept(server)
 
-    test1(server)
+    # test1(server)
     test2(server)
 
     close(server)

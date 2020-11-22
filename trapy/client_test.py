@@ -3,7 +3,7 @@ from pathlib import Path, PosixPath
 from trapy import close, recv, dial, send, Conn
 
 host = "10.0.0.1"
-port = 0
+port = 10
 
 def test1(client: Conn):
     print('New Test \n')
@@ -50,9 +50,9 @@ def test2(client: Conn):
 
 if __name__ == "__main__":
     print("-------------------------------------CLIENT------------------------------------------")
-    client: Conn = dial(f'{host}:{port}')
+    client: Conn = dial(f'{host}:{port}', True)
 
-    test1(client)
+    # test1(client)
     test2(client)
     close(client)
 
