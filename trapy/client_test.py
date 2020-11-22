@@ -54,6 +54,7 @@ if __name__ == "__main__":
 
     test1(client)
     test2(client)
+
     close(client)
 
 

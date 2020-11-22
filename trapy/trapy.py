@@ -8,7 +8,7 @@ from timer import Timer
 
 #Data
 PACKET_SIZE = 512
-SLEEP_INTERVAL = 0.0005
+SLEEP_INTERVAL = 0.0005   #2x
 TIMEOUT_INTERVAL = 0.005
 WINDOW_SIZE = 5
 
@@ -113,7 +113,7 @@ def send(conn: Conn, data: bytes, splitData = True, flags: int = 0) -> int:
     conn.base = 0
     window_size = setWindowSize(conn, numPackets)
 
-    if logs: print(f'Packets: {numPackets}')
+    if logs: print(f'Packets: {numPackets}: ====>> {data[:16]}')
 
     sending = True
     threading.Thread(target=recvForEver, args=(conn,), daemon = True).start()
@@ -161,9 +161,12 @@ def recv(conn: Conn, length: int = 512) -> bytes:
                 if pack[6] == conn.expectedNum:
 
                     pckACK: Packet = Packet(hostS,hostD, portS, portD, 0, conn.expectedNum, 1 << 6, WINDOW_SIZE, b'')
+                    if logs: print(f'==============>Enviado paquete de confirmacion para {conn.expectedNum} para {pack[10][:10]}')
                     conn.expectedNum += 1
 
                     send(conn, pckACK.build(), False)
+                    # send(conn, pckACK.build(), False)
+                    # send(conn, pckACK.build(), False)
 
                     conn.buffer += pack[10]
                     if logs: print(f'Len buffer {len(conn.buffer)}')
@@ -180,15 +183,17 @@ def recv(conn: Conn, length: int = 512) -> bytes:
                 else:
                     pckACK: Packet = Packet(hostS, hostD, portS, portD, 0, conn.expectedNum - 1, 1 << 6, WINDOW_SIZE, b'')
                     send(conn, pckACK.build(), False)
+                    # send(conn, pckACK.build(), False)
+                    # send(conn, pckACK.build(), False)
 
     return recv(conn, length)
 
 def recvWithFlags(conn: Conn):
-
     data = conn.socket.recvfrom(PACKET_SIZE + 52)[0][20:]
     if data[:4] == b'\x00\x0f\x00\x0f':
         # 0:token  1:source 2:destination 3:sourcePort 4:destPort 5:total 6:ACK/SeqNum 7:flags 8:winSize 9:CheckSum 10:data
         pack: list = Packet.unpack(data)
+        if logs: print(f'Into recv with flagas {pack[10]}')
 
         if Packet.check_sum(data[:28] + data[32:]) == pack[9]:
             flags = pack[7]
@@ -250,7 +255,7 @@ if __name__ == "__main__":
     ip = '10.0.0.1:0'
 
     if rol == 's':
-        server = listen(ip, True)
+        server = listen(ip)
         server = accept(server)
         # while True:
         #     data = recv(server)
@@ -267,7 +272,7 @@ if __name__ == "__main__":
 
     if rol == 'c':
         filePath = Path.cwd() / 'tests' / 'data' / 'data.txt'
-        conn: Conn = dial(ip, True)
+        conn: Conn = dial(ip)
         with open(filePath, 'r') as file:
             b = bytes(file.read(), 'utf-8')
             send(conn, b)
