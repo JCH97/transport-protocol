@@ -8,8 +8,8 @@ from timer import Timer
 
 #Data
 PACKET_SIZE = 512
-SLEEP_INTERVAL = 0.05
-TIMEOUT_INTERVAL = 0.5
+SLEEP_INTERVAL = 0.005
+TIMEOUT_INTERVAL = 0.05
 WINDOW_SIZE = 5
 
 #Errors
@@ -142,14 +142,10 @@ def send(conn: Conn, data: bytes, splitData = True, flags: int = 0) -> int:
     return len(data)
 
 
-def recv(conn: Conn, length: int = 512, packRcv: bytes = None) -> bytes:
+def recv(conn: Conn, length: int = 512) -> bytes:
     global logs
-    data: bytes = None
 
-    if packRcv is None:
-        data = conn.socket.recvfrom(PACKET_SIZE + 52)[0][20:]
-    else:
-        data = packRcv
+    data = conn.socket.recvfrom(PACKET_SIZE + 52)[0][20:]
 
     if data[:4] == b'\x00\x0f\x00\x0f':
         # 0:token  1:source 2:destination 3:sourcePort 4:destPort 5:total 6:ACK/SeqNum 7:flags 8:winSize 9:CheckSum 10:data
@@ -162,7 +158,7 @@ def recv(conn: Conn, length: int = 512, packRcv: bytes = None) -> bytes:
 
                 if logs: print(f'Packet expected {conn.expectedNum}, packet recv {pack[6]}')
                 # Send back an ACK
-                if pack[6] == conn.expectedNum:
+                if pack[6] == conn.expectedNum and pack[7] == 0:
 
                     pckACK: Packet = Packet(hostS,hostD, portS, portD, 0, conn.expectedNum, 1 << 6, WINDOW_SIZE, b'')
                     conn.expectedNum += 1
@@ -204,7 +200,7 @@ def recvWithFlags(conn: Conn):
 
                 send(conn, Packet(hostS, hostD, portS, portD, 0, 0, 1 << 6, WINDOW_SIZE, b'').build(), False)
 
-            elif flags & (1 << 6) or flags == 0:    # ACK flag active
+            elif flags & (1 << 6):                  # ACK flag active
                 packetACK(pack, conn)
             elif flags & (1 << 2):                  # FIN flag active
                 pass
