@@ -11,3 +11,6 @@ El párrafo anterior expone el principal error del proyecto, el cual tal vez por
 Es posible hacer logs de todas las operaciones que va realizando el proyecto; para ello en las llamadas a _recv_ y _dial_ pasar **True** como segundo parámetro; obviamente esto es opcional.
 
 Cualquier pregunta sobre el proyecto, sin problemas contactarme.
+
+
+Para ejecutar el proyecto chequear el método main.
